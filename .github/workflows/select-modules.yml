@@ -1,6 +1,16 @@
 name: Select Module Build
 
-on: [push]
+on:
+  workflow_dispatch:
+    inputs:
+      selected_module:
+        description: 'Select module to build'
+        required: true
+        default: 'Module1'
+        options:
+          - 'Module1'
+          - 'Module2'
+          - 'Module3'
 
 jobs:
   build:
@@ -9,10 +19,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      - name: Select Module
-        id: module
-        run: |
-          echo "::set-output name=selected_module::$(echo -e "Module1\nModule2\nModule3" | fzf)"
-      
       - name: Build Selected Module
-        run: echo "Building ${{ steps.module.outputs.selected_module }}"
+        run: echo "Building ${{ github.event.inputs.selected_module }}"
+
