@@ -9,12 +9,11 @@ on:
       selected_module:
         description: 'Select module to build'
         required: true
-        default: 'All'
         options:
-          - 'All'
-          - 'ecommerce-db-utils'
-          - 'ecommerce-msg-utils'
-          - 'ecommerce-dealer-customer'
+          All: 'All'
+          ecommerce-db-utils: 'ecommerce-db-utils'
+          ecommerce-msg-utils: 'ecommerce-msg-utils'
+          ecommerce-dealer-customer: 'ecommerce-dealer-customer'
 
 jobs:
   build_and_store:
@@ -58,4 +57,5 @@ jobs:
             # Replace with your actual upload commands to JFrog
             echo "Uploading build artifacts of all modules to JFrog"
           fi
+
 
