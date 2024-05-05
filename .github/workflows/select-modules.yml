@@ -1,24 +1,61 @@
-name: Select Module Build
+name: Build and Store Modules
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       selected_module:
         description: 'Select module to build'
         required: true
-        default: 'Module1'
+        default: 'All'
         options:
-          - 'Module1'
-          - 'Module2'
-          - 'Module3'
+          - 'All'
+          - 'ecommerce-db-utils'
+          - 'ecommerce-msg-utils'
+          - 'ecommerce-dealer-customer'
 
 jobs:
-  build:
+  build_and_store:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      - name: Build Selected Module
-        run: echo "Building ${{ github.event.inputs.selected_module }}"
+      - name: Setup Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: '14'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Build and Store Modules
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            if [ "${{ github.event.inputs.selected_module }}" == "All" ]; then
+              echo "Building and storing all modules"
+              # Commands to build and store all modules
+              npm run build:all
+              # Example of uploading build artifacts to JFrog
+              # Replace with your actual upload commands to JFrog
+              echo "Uploading build artifacts of all modules to JFrog"
+            else
+              echo "Building and storing ${{ github.event.inputs.selected_module }}"
+              # Commands to build and store the selected module
+              npm run build:${{ github.event.inputs.selected_module }}
+              # Example of uploading build artifacts to JFrog
+              # Replace with your actual upload commands to JFrog
+              echo "Uploading build artifacts of ${{ github.event.inputs.selected_module }} to JFrog"
+            fi
+          else
+            # Automatically triggered build
+            echo "Automatically triggered build on push"
+            # Commands to build and store all modules
+            npm run build:all
+            # Example of uploading build artifacts to JFrog
+            # Replace with your actual upload commands to JFrog
+            echo "Uploading build artifacts of all modules to JFrog"
+          fi
 
