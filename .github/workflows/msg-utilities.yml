@@ -1,33 +1,69 @@
-name: Build Ecommerce Message Utilities
+name: Build and Publish Modules
 
 on:
   push:
+    paths:
+      - 'ecommerce-db-utils/**'
+      - 'ecommerce-msg-utils/**'
+      - 'ecommerce-dealer-customer/**'
     branches:
-    - main
-  pull_request:
-    branches:
-    - main
+      - main
+  workflow_dispatch:
+    inputs:
+      selected_module:
+        description: 'Select module to build'
+        required: true
+        options:
+          All: 'All'
+          ecommerce-db-utils: 'ecommerce-db-utils'
+          ecommerce-msg-utils: 'ecommerce-msg-utils'
+          ecommerce-dealer-customer: 'ecommerce-dealer-customer'
 
 jobs:
-  build:
+  build_and_publish:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v2
+      - name: Checkout code
+        uses: actions/checkout@v2
 
-    - name: Set up JDK
-    uses: actions/setup-java@v2
-    with:
-      java-version: 11
-      distribution: 'jdk'
-      architecture: x64
-      check-latest: false
-      server-id: github
-      server-username: ${{ github.actor }}
-      server-password: ${{ secrets.GITHUB_TOKEN }}
-      overwrite-settings: true
-      job-status: success
-      
-    - name: Build with Maven
-      run: mvn clean package
+      - name: Setup Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: '14'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Build and Publish Modules
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            if [ "${{ github.event.inputs.selected_module }}" == "All" ]; then
+              echo "Building and publishing all modules"
+              # Commands to build all modules
+              npm run build:all
+              # Example of publishing build artifacts to JFrog
+              # Replace with your actual publish commands to JFrog
+              echo "Publishing build artifacts of all modules to JFrog"
+            else
+              echo "Building and publishing ${{ github.event.inputs.selected_module }}"
+              # Commands to build the selected module
+              npm run build:${{ github.event.inputs.selected_module }}
+              # Example of publishing build artifacts to JFrog
+              # Replace with your actual publish commands to JFrog
+              echo "Publishing build artifacts of ${{ github.event.inputs.selected_module }} to JFrog"
+            fi
+          else
+            # Automatically triggered build
+            echo "Automatically triggered build on push"
+            # Commands to build all modules
+            npm run build:all
+            # Example of publishing build artifacts to JFrog
+            # Replace with your actual publish commands to JFrog
+            echo "Publishing build artifacts of all modules to JFrog"
+          fi
+
+      - name: Publish to JFrog
+        if: always()
+        run: |
+          # Commands to publish build artifacts to JFrog
+          echo "Publishing build artifacts to JFrog"
