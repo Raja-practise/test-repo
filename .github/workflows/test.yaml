@@ -1,0 +1,127 @@
+name: Build, Test, and Publish Modules
+
+on:
+  push:
+    paths:
+      - 'ecommerce-db-utils/**'
+      - 'ecommerce-msg-utils/**'
+      - 'ecommerce-dealer-customer/**'
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      selected_module:
+        description: 'Select module to build'
+        required: true
+        options:
+          All: 'All'
+          ecommerce-db-utils: 'ecommerce-db-utils'
+          ecommerce-msg-utils: 'ecommerce-msg-utils'
+          ecommerce-dealer-customer: 'ecommerce-dealer-customer'
+
+jobs:
+  build_test_and_publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: '14'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Build and run tests
+        uses: ECommerce/ecommerce-github-action-workflows/.github/workflows/gradle-build.yaml@main
+        with:
+          service-name: ecommerce-service-harness
+
+      - name: Publish to JFrog
+        if: always()
+        run: |
+          # Commands to publish build artifacts to JFrog
+          echo "Publishing build artifacts to JFrog"
+
+jobs:
+  build_and_publish_db_utils:
+    if: ${{ github.event.inputs.selected_module == 'All' || github.event.inputs.selected_module == 'ecommerce-db-utils' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: '14'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Build and run tests
+        uses: ECommerce/ecommerce-github-action-workflows/.github/workflows/gradle-build.yaml@main
+        with:
+          service-name: ecommerce-db-utils
+
+      - name: Publish to JFrog
+        if: always()
+        run: |
+          # Commands to publish build artifacts to JFrog
+          echo "Publishing build artifacts to JFrog"
+
+jobs:
+  build_and_publish_msg_utils:
+    if: ${{ github.event.inputs.selected_module == 'All' || github.event.inputs.selected_module == 'ecommerce-msg-utils' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: '14'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Build and run tests
+        uses: ECommerce/ecommerce-github-action-workflows/.github/workflows/gradle-build.yaml@main
+        with:
+          service-name: ecommerce-msg-utils
+
+      - name: Publish to JFrog
+        if: always()
+        run: |
+          # Commands to publish build artifacts to JFrog
+          echo "Publishing build artifacts to JFrog"
+
+jobs:
+  build_and_publish_dealer_customer:
+    if: ${{ github.event.inputs.selected_module == 'All' || github.event.inputs.selected_module == 'ecommerce-dealer-customer' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: '14'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Build and run tests
+        uses: ECommerce/ecommerce-github-action-workflows/.github/workflows/gradle-build.yaml@main
+        with:
+          service-name: ecommerce-dealer-customer
+
+      - name: Publish to JFrog
+        if: always()
+        run: |
+          # Commands to publish build artifacts to JFrog
+          echo "Publishing build artifacts to JFrog"
