@@ -1,0 +1,50 @@
+name: Build Modules
+
+on:
+  push:
+    paths:
+      - 'ecommerce-db-utils/**'
+      - 'ecommerce-msg-utils/**'
+      - 'ecommerce-dealer-customer/**'
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      selected_module:
+        description: 'Select module to build'
+        required: true
+        options:
+          All: 'All'
+          ecommerce-db-utils: 'ecommerce-db-utils'
+          ecommerce-msg-utils: 'ecommerce-msg-utils'
+          ecommerce-dealer-customer: 'ecommerce-dealer-customer'
+
+jobs:
+  build_and_test:
+    name: "Build and run tests: ${{ github.event.inputs.selected_module }}"
+    runs-on: ubuntu-latest
+    uses: ECommerce/ecommerce-github-action-workflows/.github/workflows/gradle-build.yaml@main
+
+  build_and_publish_db_utils:
+    name: "Build and publish DB Utils"
+    if: ${{ github.event.inputs.selected_module == 'All' || github.event.inputs.selected_module == 'ecommerce-db-utils' }}
+    runs-on: ubuntu-latest
+    uses: ECommerce/ecommerce-github-action-workflows/.github/workflows/gradle-build.yaml@main
+    with:
+      service-name: ecommerce-db-utils
+
+  build_and_publish_msg_utils:
+    name: "Build and publish Msg Utils"
+    if: ${{ github.event.inputs.selected_module == 'All' || github.event.inputs.selected_module == 'ecommerce-msg-utils' }}
+    runs-on: ubuntu-latest
+    uses: ECommerce/ecommerce-github-action-workflows/.github/workflows/gradle-build.yaml@main
+    with:
+      service-name: ecommerce-msg-utils
+
+  build_and_publish_dealer_customer:
+    name: "Build and publish Dealer Customer"
+    if: ${{ github.event.inputs.selected_module == 'All' || github.event.inputs.selected_module == 'ecommerce-dealer-customer' }}
+    runs-on: ubuntu-latest
+    uses: ECommerce/ecommerce-github-action-workflows/.github/workflows/gradle-build.yaml@main
+    with:
+      service-name: ecommerce-dealer-customer
