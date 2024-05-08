@@ -11,13 +11,15 @@ on:
   workflow_dispatch:
     inputs:
       selected_module:
+        type: choice
         description: 'Select module to build'
         required: true
+        default: 'All'
         options:
-          All: 'All'
-          ecommerce-db-utils: 'ecommerce-db-utils'
-          ecommerce-msg-utils: 'ecommerce-msg-utils'
-          ecommerce-dealer-customer: 'ecommerce-dealer-customer'
+          - 'All'
+          - 'ecommerce-db-utils'
+          - 'ecommerce-msg-utils'
+          - 'ecommerce-dealer-customer'
 
 jobs:
   build_and_test:
