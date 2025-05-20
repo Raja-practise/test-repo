@@ -1,101 +1,70 @@
-name: Push Variables to Repositories
-
+name: Push Repository Variables
 on:
   workflow_dispatch:
     inputs:
       repo:
-        description: 'Full repository name, e.g., raja-practise/test1-repo-new'
-        required: true
-        type: string
+        description: "Target repository (format: team_name/repo_name). Leave blank to update all listed repos."
+        required: false
+      dry_run:
+        description: "If 'true', perform a dry-run (no changes, only log actions)."
+        default: "false"
+        required: false
+
+permissions:
+  contents: read   # allow reading repo files (repositories.txt, allow-lists)
+  # Note: Use a PAT for cross-repo changes (provided via secrets) since GITHUB_TOKEN is scoped to this repo.
 
 jobs:
-  push-variables:
-    if: |
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
-      github.ref_name == 'main' &&
-      github.event.repository.fork == false
+  sync-variables:
     runs-on: ubuntu-latest
-    env:
-      GH_TOKEN: ${{ secrets.GHEC_BOT_TOKEN }}
-      FULL_REPO: ${{ github.event.inputs.repo }}
     steps:
-      - name: Setup jq
-        run: sudo apt-get update && sudo apt-get install -y jq
+      - name: Check out central repository
+        uses: actions/checkout@v3
 
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Authenticate GitHub CLI
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_PAT }}  # Personal Access Token with repo scope for target repos
+        run: gh auth status
 
-      - name: Validate required files
+      - name: Push variables to target repositories
+        env:
+          CENTRAL_REPO: ${{ github.repository }}
         run: |
-          if [ ! -s "repositories.txt" ]; then
-            echo "Error: repositories.txt is missing or empty"
-            exit 1
+          set -euo pipefail
+          # Gather input values
+          TARGET_REPO="${{ github.event.inputs.repo }}"
+          DRY_RUN="${{ github.event.inputs.dry_run }}"
+
+          # Determine list of repositories to process
+          if [ -n "$TARGET_REPO" ]; then
+            repos_list="$TARGET_REPO"
+          else
+            repos_list=$(grep -v '^#' repositories.txt | sed '/^\s*$/d')  # all non-empty, non-comment lines
           fi
-          if [ ! -s "repo-vars.txt" ]; then
-            echo "Error: repo-vars.txt is missing or empty"
-            exit 1
-          fi
 
-      - name: Load and filter variables
-        id: build-vars
-        run: |
-          ORG_NAME=$(echo "$FULL_REPO" | cut -d'/' -f1)
-          REPO_NAME=$(echo "$FULL_REPO" | cut -d'/' -f2)
-          VAR_PREFIX=$(echo "$REPO_NAME" | tr '-' '_')_variable_
+          # Read allowed variable names into an array
+          mapfile -t ALLOWED_VARS < repo-vars.txt
 
-          echo "Using VAR_PREFIX: $VAR_PREFIX"
+          for repo in $repos_list; do
+            team="${repo%%/*}"
+            repo_name="${repo#*/}"
+            # Normalize team name: lowercase and replace '-' with '_'
+            norm_team="$(echo "$team" | tr '[:upper:]' '[:lower:]' | tr '-' '_')"
 
-          declare -A VARS_MAP
-
-          while read -r var_name; do
-            [[ -z "$var_name" || "$var_name" == \#* ]] && continue
-
-            if [[ "$var_name" == ${VAR_PREFIX}* ]]; then
-              value=$(gh variable get "$var_name" --repo "$GITHUB_REPOSITORY" --json value -q .value || true)
-              if [[ -n "$value" ]]; then
-                VARS_MAP["$var_name"]="$value"
+            echo "Updating variables for $repo (team: $team, normalized key prefix: ${norm_team}_variable_)"
+            for var in "${ALLOWED_VARS[@]}"; do
+              full_var_name="${norm_team}_variable_${var}"
+              # Fetch the value of the central repo's variable (if it exists)
+              value=$(gh variable get "$full_var_name" -R "$CENTRAL_REPO" -q .value 2>/dev/null || echo "")
+              if [ -z "$value" ]; then
+                echo "Skipped: No variable named '$full_var_name' in central repository."
+                continue
               fi
-            fi
-          done < repo-vars.txt
-
-          if [ ${#VARS_MAP[@]} -eq 0 ]; then
-            echo "No matching variables found for repo $FULL_REPO"
-            touch vars.json
-            echo "{}" > vars.json
-            exit 0
-          fi
-
-          json_output="{"
-          first=true
-          for k in "${!VARS_MAP[@]}"; do
-            [[ "$first" == true ]] && first=false || json_output+=","
-            json_output+="\"$k\":\"${VARS_MAP[$k]}\""
+              if [ "$DRY_RUN" = "true" ]; then
+                echo "[Dry-run] Would set variable '$var' in $repo (from central '$full_var_name')."
+              else
+                gh variable set "$var" -R "$repo" -b"$value"
+                echo "✔ Pushed variable '$var' to $repo."
+              fi
+            done
           done
-          json_output+="}"
-          echo "$json_output" > vars.json
-          cat vars.json
-
-      - name: Push variables to target repos
-        run: |
-          if [ ! -f vars.json ] || [ "$(jq length vars.json)" -eq 0 ]; then
-            echo "No variables to push. Skipping."
-            exit 0
-          fi
-
-          REPO_NAME=$(echo "$FULL_REPO" | cut -d'/' -f2)
-
-          readarray -t TARGET_REPOS < <(awk -F'/' -v t="$REPO_NAME" '$2 == t { print $0 }' repositories.txt)
-
-          if [ ${#TARGET_REPOS[@]} -eq 0 ]; then
-            echo "No repositories found for $REPO_NAME"
-            exit 0
-          fi
-
-          for repo in "${TARGET_REPOS[@]}"; do
-            echo "Processing $repo..."
-            if ! gh repo view "$repo" >/dev/null 2>&1; then
-              echo "Repository $repo not accessible"
-              continue
-            fi
-
-            for key in $(jq -r 'keys[]' vars.json); do
