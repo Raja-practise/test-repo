@@ -3,8 +3,8 @@ name: Push Variables to Repositories
 on:
   workflow_dispatch:
     inputs:
-      team:
-        description: 'Team name (same as repository name, e.g. test1-repo-new)'
+      repo:
+        description: 'Full repository name, e.g., raja-practise/test1-repo-new'
         required: true
         type: string
 
@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.GHEC_BOT_TOKEN }}
-      TEAM: ${{ github.event.inputs.team }}
+      FULL_REPO: ${{ github.event.inputs.repo }}
     steps:
       - name: Setup jq
         run: sudo apt-get update && sudo apt-get install -y jq
@@ -39,18 +39,23 @@ jobs:
       - name: Load and filter variables
         id: build-vars
         run: |
-          # Normalize team to uppercase and replace dashes with underscores
-          NORMALIZED_TEAM_NAME=$(echo "$TEAM" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
+          ORG_NAME=$(echo "$FULL_REPO" | cut -d'/' -f1)
+          REPO_NAME=$(echo "$FULL_REPO" | cut -d'/' -f2)
+          REPO_MATCH="$REPO_NAME"                        # used to match against repositories.txt
+          VAR_PREFIX=$(echo "$REPO_NAME" | tr '[:lower:]-' '[:upper:]_')  # normalize to TEST1_REPO_NEW
 
-          echo "Normalized team name: $NORMALIZED_TEAM_NAME"
+          echo "ORG_NAME: $ORG_NAME"
+          echo "REPO_NAME: $REPO_NAME"
+          echo "Normalized VAR_PREFIX: $VAR_PREFIX"
+
           declare -A VARS_MAP
 
           while read -r var_name; do
             [[ -z "$var_name" || "$var_name" == \#* ]] && continue
 
-            if [[ "$var_name" == ${NORMALIZED_TEAM_NAME}_VARIABLE_* ]]; then
-              short_name="${var_name#${NORMALIZED_TEAM_NAME}_VARIABLE_}"
-              final_key="${TEAM}-${short_name}"
+            if [[ "$var_name" == ${VAR_PREFIX}_VARIABLE_* ]]; then
+              short_name="${var_name#${VAR_PREFIX}_VARIABLE_}"
+              final_key="${REPO_NAME}-${short_name}"
 
               value=$(gh variable get "$var_name" --repo "$GITHUB_REPOSITORY" --json value -q .value || true)
 
@@ -61,11 +66,10 @@ jobs:
           done < repo-vars.txt
 
           if [ ${#VARS_MAP[@]} -eq 0 ]; then
-            echo "No matching variables found for team $TEAM"
+            echo "No matching variables found for repo $FULL_REPO"
             exit 0
           fi
 
-          # Output to vars.json
           json_output="{"
           first=true
           for k in "${!VARS_MAP[@]}"; do
@@ -78,10 +82,13 @@ jobs:
 
       - name: Push variables to target repos
         run: |
-          readarray -t TARGET_REPOS < <(grep "^$TEAM" repositories.txt)
+          ORG_NAME=$(echo "$FULL_REPO" | cut -d'/' -f1)
+          REPO_NAME=$(echo "$FULL_REPO" | cut -d'/' -f2)
+
+          readarray -t TARGET_REPOS < <(awk -F'/' -v t="$REPO_NAME" '$2 == t { print $0 }' repositories.txt)
 
           if [ ${#TARGET_REPOS[@]} -eq 0 ]; then
-            echo "No repositories found for team $TEAM"
+            echo "No repositories found for $REPO_NAME"
             exit 0
           fi
 
