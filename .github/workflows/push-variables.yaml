@@ -1,4 +1,5 @@
 name: Push Repository Variables
+
 on:
   workflow_dispatch:
     inputs:
@@ -6,66 +7,74 @@ on:
         description: "Target repository (format: team_name/repo_name). Leave blank to update all listed repos."
         required: false
       dry_run:
-        description: "If 'true', perform a dry-run (no changes, only log actions)."
-        default: "false"
+        description: "Set to 'true' to simulate without applying changes"
         required: false
+        default: "false"
 
 permissions:
-  contents: read   # allow reading repo files (repositories.txt, allow-lists)
-  # Note: Use a PAT for cross-repo changes (provided via secrets) since GITHUB_TOKEN is scoped to this repo.
+  contents: read
 
 jobs:
   sync-variables:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out central repository
-        uses: actions/checkout@v3
+      - name: Checkout codebase
+        uses: actions/checkout@v4
 
       - name: Authenticate GitHub CLI
         env:
-          GH_TOKEN: ${{ secrets.SYNC_PAT }}  # Personal Access Token with repo scope for target repos
+          GH_TOKEN: ${{ secrets.SYNC_PAT }}
         run: gh auth status
 
       - name: Push variables to target repositories
         env:
+          GH_TOKEN: ${{ secrets.SYNC_PAT }}
           CENTRAL_REPO: ${{ github.repository }}
+          INPUT_REPO: ${{ github.event.inputs.repo }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
           set -euo pipefail
-          # Gather input values
-          TARGET_REPO="${{ github.event.inputs.repo }}"
-          DRY_RUN="${{ github.event.inputs.dry_run }}"
 
-          # Determine list of repositories to process
-          if [ -n "$TARGET_REPO" ]; then
-            repos_list="$TARGET_REPO"
+          echo "📦 Using Central Repo: $CENTRAL_REPO"
+          echo "📍 Target Repo (if set): $INPUT_REPO"
+          echo "🧪 Dry Run Mode: $DRY_RUN"
+          echo
+
+          if [ -n "$INPUT_REPO" ]; then
+            repos_list="$INPUT_REPO"
           else
-            repos_list=$(grep -v '^#' repositories.txt | sed '/^\s*$/d')  # all non-empty, non-comment lines
+            repos_list=$(grep -v '^#' repositories.txt | sed '/^\s*$/d')
           fi
 
-          # Read allowed variable names into an array
           mapfile -t ALLOWED_VARS < repo-vars.txt
 
-          for repo in $repos_list; do
-            team="${repo%%/*}"
-            repo_name="${repo#*/}"
-            # Normalize team name: lowercase and replace '-' with '_'
-            norm_team="$(echo "$team" | tr '[:upper:]' '[:lower:]' | tr '-' '_')"
+          for FULL_REPO in $repos_list; do
+            echo "🔄 Processing $FULL_REPO..."
+            ORG_NAME=$(echo "$FULL_REPO" | cut -d'/' -f1)
+            REPO_NAME=$(echo "$FULL_REPO" | cut -d'/' -f2)
+            NORMALIZED_TEAM=$(echo "$ORG_NAME" | tr '[:upper:]' '[:lower:]' | tr '-' '_' | tr '/' '_')
 
-            echo "Updating variables for $repo (team: $team, normalized key prefix: ${norm_team}_variable_)"
+            VAR_PREFIX="${NORMALIZED_TEAM}_variable_"
+            echo "🔍 Using VAR_PREFIX: $VAR_PREFIX"
+
             for var in "${ALLOWED_VARS[@]}"; do
-              full_var_name="${norm_team}_variable_${var}"
-              # Fetch the value of the central repo's variable (if it exists)
+              full_var_name="${VAR_PREFIX}${var}"
               UPPER_VAR_NAME=$(echo "$full_var_name" | tr '[:lower:]' '[:upper:]')
               value=$(gh variable get "$UPPER_VAR_NAME" -R "$CENTRAL_REPO" -q .value 2>/dev/null || echo "")
+
               if [ -z "$value" ]; then
-                echo "Skipped: No variable named '$UPPER_VAR_NAME' in central repository."
+                echo "⚠️  Skipped: No variable named '$UPPER_VAR_NAME' in central repository."
                 continue
               fi
-              if [ "$DRY_RUN" = "true" ]; then
-                echo "[Dry-run] Would set variable '$var' in $repo (from central '$full_var_name')."
+
+              if [ "$DRY_RUN" == "true" ]; then
+                echo "🧪 [Dry-run] Would set variable '$var' in $FULL_REPO"
               else
-                gh variable set "$var" -R "$repo" -b"$value"
-                echo "✔ Pushed variable '$var' to $repo."
+                gh variable set "$var" -R "$FULL_REPO" -b"$value"
+                echo "✅ Set variable '$var' in $FULL_REPO"
               fi
             done
+
+            echo "✅ Completed processing $FULL_REPO"
+            echo "----------------------------------------"
           done
