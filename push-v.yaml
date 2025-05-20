@@ -1,4 +1,4 @@
-name: Push Variables to Repositories-1
+name: Push Variables
 
 on:
   workflow_dispatch:
