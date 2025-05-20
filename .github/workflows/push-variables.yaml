@@ -55,9 +55,10 @@ jobs:
             for var in "${ALLOWED_VARS[@]}"; do
               full_var_name="${norm_team}_variable_${var}"
               # Fetch the value of the central repo's variable (if it exists)
-              value=$(gh variable get "$full_var_name" -R "$CENTRAL_REPO" -q .value 2>/dev/null || echo "")
+              UPPER_VAR_NAME=$(echo "$full_var_name" | tr '[:lower:]' '[:upper:]')
+              value=$(gh variable get "$UPPER_VAR_NAME" -R "$CENTRAL_REPO" -q .value 2>/dev/null || echo "")
               if [ -z "$value" ]; then
-                echo "Skipped: No variable named '$full_var_name' in central repository."
+                echo "Skipped: No variable named '$UPPER_VAR_NAME' in central repository."
                 continue
               fi
               if [ "$DRY_RUN" = "true" ]; then
