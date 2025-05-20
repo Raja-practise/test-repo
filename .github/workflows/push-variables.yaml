@@ -41,26 +41,19 @@ jobs:
         run: |
           ORG_NAME=$(echo "$FULL_REPO" | cut -d'/' -f1)
           REPO_NAME=$(echo "$FULL_REPO" | cut -d'/' -f2)
-          REPO_MATCH="$REPO_NAME"                        # used to match against repositories.txt
-          VAR_PREFIX=$(echo "$REPO_NAME" | tr '[:lower:]-' '[:upper:]_')  # normalize to TEST1_REPO_NEW
+          VAR_PREFIX=$(echo "$REPO_NAME" | tr '-' '_')_variable_
 
-          echo "ORG_NAME: $ORG_NAME"
-          echo "REPO_NAME: $REPO_NAME"
-          echo "Normalized VAR_PREFIX: $VAR_PREFIX"
+          echo "Using VAR_PREFIX: $VAR_PREFIX"
 
           declare -A VARS_MAP
 
           while read -r var_name; do
             [[ -z "$var_name" || "$var_name" == \#* ]] && continue
 
-            if [[ "$var_name" == ${VAR_PREFIX}_VARIABLE_* ]]; then
-              short_name="${var_name#${VAR_PREFIX}_VARIABLE_}"
-              final_key="${REPO_NAME}-${short_name}"
-
+            if [[ "$var_name" == ${VAR_PREFIX}* ]]; then
               value=$(gh variable get "$var_name" --repo "$GITHUB_REPOSITORY" --json value -q .value || true)
-
               if [[ -n "$value" ]]; then
-                VARS_MAP["$final_key"]="$value"
+                VARS_MAP["$var_name"]="$value"
               fi
             fi
           done < repo-vars.txt
@@ -82,9 +75,7 @@ jobs:
 
       - name: Push variables to target repos
         run: |
-          ORG_NAME=$(echo "$FULL_REPO" | cut -d'/' -f1)
           REPO_NAME=$(echo "$FULL_REPO" | cut -d'/' -f2)
-
           readarray -t TARGET_REPOS < <(awk -F'/' -v t="$REPO_NAME" '$2 == t { print $0 }' repositories.txt)
 
           if [ ${#TARGET_REPOS[@]} -eq 0 ]; then
