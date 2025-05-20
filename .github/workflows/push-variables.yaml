@@ -60,6 +60,8 @@ jobs:
 
           if [ ${#VARS_MAP[@]} -eq 0 ]; then
             echo "No matching variables found for repo $FULL_REPO"
+            touch vars.json
+            echo "{}" > vars.json
             exit 0
           fi
 
@@ -75,7 +77,13 @@ jobs:
 
       - name: Push variables to target repos
         run: |
+          if [ ! -f vars.json ] || [ "$(jq length vars.json)" -eq 0 ]; then
+            echo "No variables to push. Skipping."
+            exit 0
+          fi
+
           REPO_NAME=$(echo "$FULL_REPO" | cut -d'/' -f2)
+
           readarray -t TARGET_REPOS < <(awk -F'/' -v t="$REPO_NAME" '$2 == t { print $0 }' repositories.txt)
 
           if [ ${#TARGET_REPOS[@]} -eq 0 ]; then
@@ -91,10 +99,3 @@ jobs:
             fi
 
             for key in $(jq -r 'keys[]' vars.json); do
-              value=$(jq -r --arg k "$key" '.[$k]' vars.json)
-              if [ -n "$value" ]; then
-                echo "Setting $key in $repo"
-                gh variable set "$key" -R "$repo" -b "$value"
-              fi
-            done
-          done
