@@ -52,18 +52,20 @@ jobs:
             echo "🔄 Processing $FULL_REPO..."
             ORG_NAME=$(echo "$FULL_REPO" | cut -d'/' -f1)
             REPO_NAME=$(echo "$FULL_REPO" | cut -d'/' -f2)
-            NORMALIZED_TEAM=$(echo "$ORG_NAME" | tr '[:upper:]' '[:lower:]' | tr '-' '_' | tr '/' '_')
 
-            VAR_PREFIX="${NORMALIZED_TEAM}_variable_"
+            NORMALIZED_TEAM=$(echo "$ORG_NAME" | tr '[:upper:]' '[:lower:]' | tr '-' '_' | tr '/' '_')
+            VAR_PREFIX=$(echo "${NORMALIZED_TEAM}_variable_" | tr '[:lower:]' '[:upper:]')
+
             echo "🔍 Using VAR_PREFIX: $VAR_PREFIX"
 
             for var in "${ALLOWED_VARS[@]}"; do
               full_var_name="${VAR_PREFIX}${var}"
-              UPPER_VAR_NAME=$(echo "$full_var_name" | tr '[:lower:]' '[:upper:]')
-              value=$(gh variable get "$UPPER_VAR_NAME" -R "$CENTRAL_REPO" -q .value 2>/dev/null || echo "")
+              echo "🔎 Looking for: $full_var_name"
+
+              value=$(gh variable get "$full_var_name" -R "$CENTRAL_REPO" -q .value 2>/dev/null || echo "")
 
               if [ -z "$value" ]; then
-                echo "⚠️  Skipped: No variable named '$UPPER_VAR_NAME' in central repository."
+                echo "⚠️  Skipped: No variable named '$full_var_name' in central repository."
                 continue
               fi
 
