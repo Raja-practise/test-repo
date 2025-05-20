@@ -18,7 +18,7 @@ jobs:
   sync-variables:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout codebase
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Authenticate GitHub CLI
@@ -35,37 +35,30 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "📦 Using Central Repo: $CENTRAL_REPO"
-          echo "📍 Target Repo (if set): $INPUT_REPO"
+          echo "🔐 Using Central Repo: $CENTRAL_REPO"
+          echo "🔁 Target Repo (if set): $INPUT_REPO"
           echo "🧪 Dry Run Mode: $DRY_RUN"
           echo
 
+          # Read list of repos to update
           if [ -n "$INPUT_REPO" ]; then
             repos_list="$INPUT_REPO"
           else
             repos_list=$(grep -v '^#' repositories.txt | sed '/^\s*$/d')
           fi
 
-          mapfile -t ALLOWED_VARS < repo-vars.txt
+          # Read list of variable names to sync
+          mapfile -t VARS_TO_PUSH < repo-vars.txt
 
           for FULL_REPO in $repos_list; do
             echo "🔄 Processing $FULL_REPO..."
-            ORG_NAME=$(echo "$FULL_REPO" | cut -d'/' -f1)
-            REPO_NAME=$(echo "$FULL_REPO" | cut -d'/' -f2)
 
-            NORMALIZED_TEAM=$(echo "$ORG_NAME" | tr '[:upper:]' '[:lower:]' | tr '-' '_' | tr '/' '_')
-            VAR_PREFIX=$(echo "${NORMALIZED_TEAM}_variable_" | tr '[:lower:]' '[:upper:]')
-
-            echo "🔍 Using VAR_PREFIX: $VAR_PREFIX"
-
-            for var in "${ALLOWED_VARS[@]}"; do
-              full_var_name="${VAR_PREFIX}${var}"
-              echo "🔎 Looking for: $full_var_name"
-
-              value=$(gh variable get "$full_var_name" -R "$CENTRAL_REPO" -q .value 2>/dev/null || echo "")
+            for var in "${VARS_TO_PUSH[@]}"; do
+              echo "🔍 Looking for: $var"
+              value=$(gh variable get "$var" -R "$CENTRAL_REPO" -q .value 2>/dev/null || echo "")
 
               if [ -z "$value" ]; then
-                echo "⚠️  Skipped: No variable named '$full_var_name' in central repository."
+                echo "⚠️  Skipped: No variable named '$var' in central repository."
                 continue
               fi
 
@@ -77,6 +70,6 @@ jobs:
               fi
             done
 
-            echo "✅ Completed processing $FULL_REPO"
-            echo "----------------------------------------"
+            echo "✅ Done: $FULL_REPO"
+            echo "--------------------------------"
           done
