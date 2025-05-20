@@ -4,8 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       team:
-        description: 'Team name to push variables for (leave empty for all teams)'
-        required: false
+        description: 'Team name (same as repository name, e.g. test1-repo-new)'
+        required: true
         type: string
 
 jobs:
@@ -15,118 +15,88 @@ jobs:
       github.ref_name == 'main' &&
       github.event.repository.fork == false
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GHEC_BOT_TOKEN }}
+      TEAM: ${{ github.event.inputs.team }}
     steps:
       - name: Setup jq
-        shell: sh
-        run: sudo apt-get update && sudo apt-get -y install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Checkout codebase
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Validate repositories file
-        shell: bash
+      - name: Validate required files
         run: |
-          if [ ! -f "repositories.txt" ]; then
-            echo "Error: repositories.txt file not found"
-            exit 1
-          fi
           if [ ! -s "repositories.txt" ]; then
-            echo "Error: repositories.txt is empty"
+            echo "Error: repositories.txt is missing or empty"
+            exit 1
+          fi
+          if [ ! -s "repo-vars.txt" ]; then
+            echo "Error: repo-vars.txt is missing or empty"
             exit 1
           fi
 
-      - name: Push variables to repositories
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GHEC_BOT_TOKEN }}
-          TEAM: ${{ github.event.inputs.team }}
+      - name: Load and filter variables
+        id: build-vars
         run: |
-          # Filter out all variables that start with github_ (case insensitive)
-          variables='{
-            "TEST": "test"
-          }'
-          filtered_variables=$(echo "$variables" | jq 'with_entries(if (.key|test("^(?!github_).*$"; "i")) then { key: .key, value: .value } else empty end)')
+          # Normalize team to uppercase and replace dashes with underscores
+          NORMALIZED_TEAM_NAME=$(echo "$TEAM" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
 
-          if [ "$(echo "$filtered_variables" | jq '. | length')" -eq 0 ]; then
-            echo "Error: No valid variables found after filtering"
-            exit 1
+          echo "Normalized team name: $NORMALIZED_TEAM_NAME"
+          declare -A VARS_MAP
+
+          while read -r var_name; do
+            [[ -z "$var_name" || "$var_name" == \#* ]] && continue
+
+            if [[ "$var_name" == ${NORMALIZED_TEAM_NAME}_VARIABLE_* ]]; then
+              short_name="${var_name#${NORMALIZED_TEAM_NAME}_VARIABLE_}"
+              final_key="${TEAM}-${short_name}"
+
+              value=$(gh variable get "$var_name" --repo "$GITHUB_REPOSITORY" --json value -q .value || true)
+
+              if [[ -n "$value" ]]; then
+                VARS_MAP["$final_key"]="$value"
+              fi
+            fi
+          done < repo-vars.txt
+
+          if [ ${#VARS_MAP[@]} -eq 0 ]; then
+            echo "No matching variables found for team $TEAM"
+            exit 0
           fi
 
-          # Read repositories from file
-          readarray -t repositories < repositories.txt
+          # Output to vars.json
+          json_output="{"
+          first=true
+          for k in "${!VARS_MAP[@]}"; do
+            [[ "$first" == true ]] && first=false || json_output+=","
+            json_output+="\"$k\":\"${VARS_MAP[$k]}\""
+          done
+          json_output+="}"
+          echo "$json_output" > vars.json
+          cat vars.json
 
-          # Function to push variables to a repository
-          push_variables_to_repo() {
-            local repo=$1
-            local variables_list=$2
+      - name: Push variables to target repos
+        run: |
+          readarray -t TARGET_REPOS < <(grep "^$TEAM" repositories.txt)
 
-            echo "Processing repository: $repo"
-            for var_name in $(echo "$variables_list" | jq -r 'keys[]'); do
-              value=$(echo "$variables_list" | jq -r --arg var "$var_name" '.[$var]')
-              if [ -z "$value" ]; then
-                echo "Warning: Empty value for variable $var_name, skipping"
-                continue
-              fi
-              echo "Setting variable $var_name in $repo"
-              gh variable set "$var_name" -R "$repo" -b "$value"
-            done
-          }
-
-          # Process team-specific variables
-          if [ -n "$TEAM" ]; then
-            # Filter variables for the specific team
-            team_variables=$(echo "$filtered_variables" | jq --arg team "$TEAM" 'with_entries(select(.key | startswith($team + "-")))')
-
-            if [ "$(echo "$team_variables" | jq '. | length')" -eq 0 ]; then
-              echo "No variables found for team $TEAM"
-              exit 0
-            fi
-
-            # Get repositories for the team (assuming repositories.txt has team prefix in repo names)
-            team_repos=($(grep "^$TEAM" repositories.txt))
-
-            if [ ${#team_repos[@]} -eq 0 ]; then
-              echo "No repositories found for team $TEAM"
-              exit 0
-            fi
-
-            for repo in "${team_repos[@]}"; do
-              if ! gh repo view "$repo" >/dev/null 2>&1; then
-                echo "Error: Repository $repo does not exist or is not accessible"
-                exit 1
-              fi
-              push_variables_to_repo "$repo" "$team_variables"
-            done
-          else
-            # Process all teams
-            # Get unique team prefixes from repository names
-            teams=($(cut -d'/' -f1 repositories.txt | sort -u))
-
-            for team in "${teams[@]}"; do
-              echo "Processing team: $team"
-              # Filter variables for this team
-              team_variables=$(echo "$filtered_variables" | jq --arg team "$team" 'with_entries(select(.key | startswith($team + "-")))')
-
-              if [ "$(echo "$team_variables" | jq '. | length')" -eq 0 ]; then
-                echo "No variables found for team $team"
-                continue
-              fi
-
-              # Get repositories for this team
-              team_repos=($(grep "^$team" repositories.txt))
-
-              if [ ${#team_repos[@]} -eq 0 ]; then
-                echo "No repositories found for team $team"
-                continue
-              fi
-
-              for repo in "${team_repos[@]}"; do
-                if ! gh repo view "$repo" >/dev/null 2>&1; then
-                  echo "Error: Repository $repo does not exist or is not accessible"
-                  exit 1
-                fi
-                push_variables_to_repo "$repo" "$team_variables"
-              done
-            done
+          if [ ${#TARGET_REPOS[@]} -eq 0 ]; then
+            echo "No repositories found for team $TEAM"
+            exit 0
           fi
 
+          for repo in "${TARGET_REPOS[@]}"; do
+            echo "Processing $repo..."
+            if ! gh repo view "$repo" >/dev/null 2>&1; then
+              echo "Repository $repo not accessible"
+              continue
+            fi
+
+            for key in $(jq -r 'keys[]' vars.json); do
+              value=$(jq -r --arg k "$key" '.[$k]' vars.json)
+              if [ -n "$value" ]; then
+                echo "Setting $key in $repo"
+                gh variable set "$key" -R "$repo" -b "$value"
+              fi
+            done
+          done
