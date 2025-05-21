@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       repo:
-        description: "Target repository (format: team_name/repo_name). Leave blank to update all listed repos."
+        description: "Target repository (format: org/repo). Leave blank to sync to all listed repos"
         required: false
       dry_run:
-        description: "Set to 'true' to simulate without applying changes"
+        description: "Set to 'true' to simulate the sync without applying"
         required: false
         default: "false"
 
@@ -15,10 +15,10 @@ permissions:
   contents: read
 
 jobs:
-  sync-variables:
+  push-variables:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout workflow repo
         uses: actions/checkout@v4
 
       - name: Authenticate GitHub CLI
@@ -34,42 +34,41 @@ jobs:
           DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
           set -euo pipefail
+          echo "🔐 Central Repo: $CENTRAL_REPO"
+          echo "🎯 Input Repo: $INPUT_REPO"
+          echo "🧪 Dry Run: $DRY_RUN"
+          echo "-------------------------------------"
 
-          echo "🔐 Using Central Repo: $CENTRAL_REPO"
-          echo "🔁 Target Repo (if set): $INPUT_REPO"
-          echo "🧪 Dry Run Mode: $DRY_RUN"
-          echo
-
-          # Read list of repos to update
           if [ -n "$INPUT_REPO" ]; then
             repos_list="$INPUT_REPO"
           else
             repos_list=$(grep -v '^#' repositories.txt | sed '/^\s*$/d')
           fi
 
-          # Read list of variable names to sync
-          mapfile -t VARS_TO_PUSH < repo-vars.txt
+          mapfile -t VARS < repo-vars.txt
 
           for FULL_REPO in $repos_list; do
             echo "🔄 Processing $FULL_REPO..."
 
-            for var in "${VARS_TO_PUSH[@]}"; do
-              echo "🔍 Looking for: $var"
+            for var in "${VARS[@]}"; do
+              echo "🔍 Looking for variable: $var"
+
+              # Attempt to retrieve from central repo
               value=$(gh variable get "$var" -R "$CENTRAL_REPO" -q .value 2>/dev/null || echo "")
 
               if [ -z "$value" ]; then
-                echo "⚠️  Skipped: No variable named '$var' in central repository."
+                echo "⚠️ Skipped: Variable '$var' not found in $CENTRAL_REPO"
                 continue
               fi
 
               if [ "$DRY_RUN" == "true" ]; then
-                echo "🧪 [Dry-run] Would set variable '$var' in $FULL_REPO"
+                echo "🧪 [Dry-run] Would push variable '$var' to $FULL_REPO"
               else
                 gh variable set "$var" -R "$FULL_REPO" -b"$value"
-                echo "✅ Set variable '$var' in $FULL_REPO"
+                echo "✅ Pushed variable '$var' to $FULL_REPO"
               fi
             done
 
-            echo "✅ Done: $FULL_REPO"
-            echo "--------------------------------"
+            echo "✅ Done with $FULL_REPO"
+            echo "-------------------------------------"
           done
