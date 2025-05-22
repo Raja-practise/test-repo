@@ -3,18 +3,18 @@ name: Push Variables to Repositories
 on:
   workflow_dispatch:
     inputs:
-      repo:
-        description: 'Target repository (format: org/repo). Leave blank to update all listed repos.'
+      target_repository:
+        description: 'Target repository (format: team_name/repo_name). Leave blank to update all listed repos.'
         required: false
         type: string
       dry_run:
-        description: 'If true, only log actions without changes'
+        description: 'If true, perform a dry-run (no changes, only log actions).'
         required: false
         default: 'false'
         type: choice
         options:
-          - 'false'
           - 'true'
+          - 'false'
 
 jobs:
   push-variables:
@@ -22,15 +22,11 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GHEC_BOT_TOKEN }}
       CENTRAL_REPO: Raja-practise/test-repo
-      INPUT_REPO: ${{ github.event.inputs.repo }}
+      INPUT_REPO: ${{ github.event.inputs.target_repository }}
       DRY_RUN: ${{ github.event.inputs.dry_run }}
-
     steps:
-      - name: Checkout codebase
+      - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Authenticate gh CLI
-        run: echo "$GH_TOKEN" | gh auth login --with-token
 
       - name: Validate repositories file
         run: |
@@ -43,68 +39,54 @@ jobs:
             exit 1
           fi
 
-      - name: Push variables to target repositories
+      - name: Load and push variables to target repositories
         run: |
           set -euo pipefail
 
           echo "📍 Using Central Repo: $CENTRAL_REPO"
-          if [ -n "$INPUT_REPO" ]; then
-            echo "🎯 Target Repo (if set): $INPUT_REPO"
-          else
-            echo "📦 Target Repo: all listed in repositories.txt"
-          fi
+          echo "🎯 Target Repo (if set): $INPUT_REPO"
           echo "🧪 Dry Run Mode: $DRY_RUN"
-          echo
+          echo ""
 
-          # Determine which repos to update
-          if [ -n "$INPUT_REPO" ]; then
-            mapfile -t REPOS <<< "$INPUT_REPO"
+          # Get variables from the central repo
+          variables=$(gh variable list -R "$CENTRAL_REPO" --json name,value | jq -r '[.[] | { (.name): .value }] | add')
+
+          if [ "$INPUT_REPO" != "" ]; then
+            TARGET_REPOS=("$INPUT_REPO")
           else
-            mapfile -t REPOS < repositories.txt
+            mapfile -t TARGET_REPOS < repositories.txt
           fi
 
-          # Pull all variables from central repo into JSON
-          echo "🔐 Pulling variables from central repo: $CENTRAL_REPO"
-          VAR_JSON=$(gh variable list -R "$CENTRAL_REPO" --json name,value | jq -r '[.[] | { (.name): .value }] | add')
+          for FULL_REPO in "${TARGET_REPOS[@]}"; do
+            echo "📦 Processing $FULL_REPO..."
 
-          if [ -z "$VAR_JSON" ] || [ "$VAR_JSON" = "{}" ]; then
-            echo "❌ No variables found in central repository."
-            exit 1
-          fi
-
-          echo
-
-          for FULL_REPO in "${REPOS[@]}"; do
-            echo "🛠️  Processing $FULL_REPO..."
             ORG_NAME=$(echo "$FULL_REPO" | cut -d'/' -f1)
             REPO_NAME=$(echo "$FULL_REPO" | cut -d'/' -f2)
-            VAR_PREFIX=$(echo "${ORG_NAME}_${REPO_NAME}_VARIABLE_" | tr '-' '_' | tr '[:lower:]' '[:upper:]')
 
-            echo "🔍 Using VAR_PREFIX: $VAR_PREFIX"
+            # Normalize prefix to match variable names
+            VAR_PREFIX=$(echo "${ORG_NAME}_variable_" | tr '[:lower:]' '[:upper:]')
+            echo "🔎 Using VAR_PREFIX: $VAR_PREFIX"
 
-            # Loop through repo-vars.txt and find matching keys in VAR_JSON
-            FOUND=0
-            while read -r VAR_KEY; do
-              VAR_NAME="${VAR_PREFIX}${VAR_KEY}"
-              VALUE=$(echo "$VAR_JSON" | jq -r --arg key "$VAR_NAME" '.[$key]')
-              if [ "$VALUE" != "null" ]; then
-                echo "✅ Found: $VAR_NAME"
-                FOUND=1
-                if [ "$DRY_RUN" == "true" ]; then
-                  echo "📝 [Dry-run] Would set $VAR_NAME in $FULL_REPO"
-                else
-                  gh variable set "$VAR_NAME" -R "$FULL_REPO" -b "$VALUE"
-                  echo "🚀 Set $VAR_NAME in $FULL_REPO"
-                fi
-              else
-                echo "⚠️ Skipped: No variable named '$VAR_NAME' in central repository."
-              fi
-            done < repo-vars.txt
+            VARS_TO_PUSH=$(jq -r --arg prefix "$VAR_PREFIX" '
+              to_entries | map(select(.key | startswith($prefix))) | from_entries
+            ' <<< "$variables")
 
-            if [ $FOUND -eq 0 ]; then
-              echo "⚠️ No matching variables found for prefix $VAR_PREFIX"
+            if [ "$(jq length <<< "$VARS_TO_PUSH")" -eq 0 ]; then
+              echo "⚠️ No matching variables found for $FULL_REPO"
+              continue
             fi
 
-            echo "✔️  Done: $FULL_REPO"
-            echo "-----------------------------------------"
+            for var in $(echo "$VARS_TO_PUSH" | jq -r 'keys[]'); do
+              value=$(echo "$VARS_TO_PUSH" | jq -r --arg var "$var" '.[$var]')
+
+              if [ "$DRY_RUN" == "true" ]; then
+                echo "🔍 [Dry-run] Would set variable '$var' in $FULL_REPO"
+              else
+                gh variable set "$var" -R "$FULL_REPO" -b "$value"
+                echo "✅ Set variable '$var' in $FULL_REPO"
+              fi
+            done
+
+            echo "✅ Completed processing $FULL_REPO"
+            echo "-------------------------------------"
           done
