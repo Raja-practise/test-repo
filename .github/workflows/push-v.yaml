@@ -41,12 +41,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GHEC_BOT_TOKEN }}
           TEAM: ${{ github.event.inputs.team }}
         run: |
-          # ✅ Fixed: Load actual variables from the current repository
-          variables=$(gh variable list -R "$GITHUB_REPOSITORY" --json name,value | jq -r 'from_entries([.[] | {key: .name, value: .value}])')
-
-          # ✅ Fixed: Filter out all variables that start with github_ (case insensitive)
+          variables=$(gh variable list -R "$GITHUB_REPOSITORY" --json name,value | jq -r '[.[] | { (.name): .value }] | add')
           filtered_variables=$(echo "$variables" | jq 'with_entries(select(.key | test("^(?i:github_)") | not))')
-
           if [ "$(echo "$filtered_variables" | jq '. | length')" -eq 0 ]; then
             echo "Error: No valid variables found after filtering"
             exit 1
