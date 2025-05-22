@@ -1,4 +1,4 @@
-name: Push Variables
+name: Push Variables to Repositories
 
 on:
   workflow_dispatch:
@@ -41,11 +41,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GHEC_BOT_TOKEN }}
           TEAM: ${{ github.event.inputs.team }}
         run: |
-          # Filter out all variables that start with github_ (case insensitive)
-          variables='{
-            "TEST": "test"
-          }'
-          filtered_variables=$(echo "$variables" | jq 'with_entries(if (.key|test("^(?!github_).*$"; "i")) then { key: .key, value: .value } else empty end)')
+          # ✅ Fixed: Load actual variables from the current repository
+          variables=$(gh variable list -R "$GITHUB_REPOSITORY" --json name,value | jq -r 'from_entries([.[] | {key: .name, value: .value}])')
+
+          # ✅ Fixed: Filter out all variables that start with github_ (case insensitive)
+          filtered_variables=$(echo "$variables" | jq 'with_entries(select(.key | test("^(?i:github_)") | not))')
 
           if [ "$(echo "$filtered_variables" | jq '. | length')" -eq 0 ]; then
             echo "Error: No valid variables found after filtering"
